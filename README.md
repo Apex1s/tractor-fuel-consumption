@@ -1,13 +1,17 @@
 # Tractor Fuel Consumption Prediction
 
+[![Tests](https://github.com/Apex1s/tractor-fuel-consumption/actions/workflows/tests.yml/badge.svg)](https://github.com/Apex1s/tractor-fuel-consumption/actions/workflows/tests.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
+
 Predicting diesel consumption per agricultural intervention from GPS traces,
 parcel geometry and equipment specifications, so that abnormal consumption —
 mechanical faults, or fuel siphoned off between jobs — can be flagged against
 what a job of that size *should* have taken.
 
-**Result: 0.57 L mean absolute error on parcels the model never saw, against a
-3.91 L naive baseline — a 6.9× improvement.** Cross-validated MAE is
-0.47 ± 0.22 L on a target whose median is 1.09 L.
+**Result: 0.47 L mean absolute error on parcels the model never saw, against a
+3.91 L naive baseline — an 8.4× improvement.** Nested cross-validated MAE is
+0.44 ± 0.17 L on a target whose median is 1.09 L.
 
 | Model | MAE (L) | vs. baseline |
 |---|---|---|
@@ -15,15 +19,19 @@ what a job of that size *should* have taken.
 | Linear regression, duration only | 0.884 ± 0.322 | 3.5× |
 | Linear regression, all features | 0.709 ± 0.121 | 4.3× |
 | Gradient boosting, hand-tuned | 0.615 ± 0.210 | 5.0× |
-| **Gradient boosting, defaults** | **0.472 ± 0.220** | **6.5×** |
+| Gradient boosting, defaults | 0.472 ± 0.220 | 6.5× |
+| **Gradient boosting, random search (nested CV)** | **0.441 ± 0.171** | **6.9×** |
 
 *5-fold cross-validation on the training split, grouped by parcel: every
 intervention on a parcel falls in the same fold, and the holdout is six whole
 parcels (85 interventions). Jobs on one parcel share terrain and distances, so a
 random split would score the model on near-copies of its training rows and
 overstate accuracy. The hand-tuned configuration reaches a training MAE of
-0.0002 — it memorises the data — and generalises worse than untouched defaults,
-so the defaults are what ships.*
+0.0002 — it memorises the data — and generalises worse than untouched defaults.
+A random search over 40 configurations does beat the defaults; it is scored by
+nested cross-validation (the search runs inside each outer fold), because the
+best score of a search on the same folds would be optimistic. Its winner
+(learning rate 0.03, depth 5, 198 trees, subsampling) is what ships.*
 
 ![Model comparison](reports/figures/model_comparison.png)
 
@@ -66,7 +74,7 @@ that have a trace and `has_trajectory = False` for the others.
 ## Running it
 
 ```bash
-git clone https://github.com/AnasSABBAHI/tractor-fuel-consumption
+git clone https://github.com/Apex1s/tractor-fuel-consumption
 cd tractor-fuel-consumption
 
 python -m venv venv              # Python 3.12, see .python-version
@@ -112,8 +120,9 @@ flag every large job and no small one.
 
 ## Limitations
 
-- **No hyperparameter search.** Defaults beat hand-picked values here; a proper
-  search would likely beat both. This is the obvious next improvement.
+- **A modest search.** 40 random configurations of one model family. A wider
+  search, or other families, could still do better; with 30 parcels the gain
+  would be hard to measure reliably.
 - **500 rows on 30 parcels.** Small enough that the holdout estimate carries
   real uncertainty: six held-out parcels is a small sample, which is why
   cross-validated standard deviations accompany every score.

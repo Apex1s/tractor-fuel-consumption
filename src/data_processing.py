@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
@@ -46,7 +46,7 @@ def _sorted_csvs(folder_path: str) -> list[str]:
 
 def _path_distance_km(latitudes: Iterable[float], longitudes: Iterable[float]) -> float:
     """Total geodesic length of a sequence of points, in kilometres."""
-    points = list(zip(latitudes, longitudes))
+    points = list(zip(latitudes, longitudes, strict=True))
     return sum(
         geodesic(points[i - 1], points[i]).km for i in range(1, len(points))
     )
@@ -120,7 +120,7 @@ def _area_and_perimeter(latitudes: list[float], longitudes: list[float]) -> tupl
     measuring, because degrees are not a unit of area. ``buffer(0)`` repairs
     self-intersecting rings, which otherwise report a nonsensical area.
     """
-    polygon = Polygon(zip(longitudes, latitudes))
+    polygon = Polygon(zip(longitudes, latitudes, strict=True))
     if not polygon.is_valid:
         polygon = polygon.buffer(0)
     if polygon.is_empty or polygon.area == 0:
@@ -166,7 +166,7 @@ def process_parcels(folder_path: str) -> pd.DataFrame:
         try:
             area_m2, perimeter_m = _area_and_perimeter(latitudes, longitudes)
         except ValueError as exc:
-            warnings.warn(f"{filename}: {exc}; parcel skipped")
+            warnings.warn(f"{filename}: {exc}; parcel skipped", stacklevel=2)
             continue
 
         records.append(
