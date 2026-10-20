@@ -15,6 +15,7 @@ so that re-running this module reproduces the values stored in
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Iterable
 
 import numpy as np
@@ -26,6 +27,10 @@ from shapely.ops import transform
 
 TRAJECTORY_COLUMNS = ("Temps", "Latitude", "Longitude", "Vitesse")
 PARCEL_COLUMNS = ("Latitude", "Longitude")
+
+# Columns of the raw trajectory files that measure fuel use directly. They are
+# the target in another unit and must never reach the feature table.
+TARGET_PROXY_COLUMNS = ("Consommation (ml)",)
 
 
 def _sorted_csvs(folder_path: str) -> list[str]:
@@ -58,8 +63,8 @@ def process_trajectories(folder_path: str) -> pd.DataFrame:
     Returns
     -------
     pd.DataFrame
-        One row per trajectory, keyed by ``ID``. Empty files and files missing
-        required columns are skipped.
+        One row per trajectory, keyed by ``ID``. Empty files, files missing
+        required columns and fixes without coordinates are skipped.
     """
     records = []
 
@@ -68,6 +73,12 @@ def process_trajectories(folder_path: str) -> pd.DataFrame:
 
         missing = set(TRAJECTORY_COLUMNS) - set(df.columns)
         if df.empty or missing:
+            continue
+
+        # A fix without coordinates or a timestamp cannot contribute to a
+        # distance or a duration (geodesic() raises on NaN).
+        df = df.dropna(subset=["Temps", "Latitude", "Longitude"])
+        if len(df) < 2:
             continue
 
         df["Temps"] = pd.to_datetime(df["Temps"], format="%Y-%m-%d %H:%M:%S")
@@ -95,7 +106,11 @@ def process_trajectories(folder_path: str) -> pd.DataFrame:
             }
         )
 
-    return pd.DataFrame(records)
+    features = pd.DataFrame(records)
+    leaked = set(TARGET_PROXY_COLUMNS) & set(features.columns)
+    if leaked:
+        raise ValueError(f"target proxy column(s) in features: {sorted(leaked)}")
+    return features
 
 
 def _area_and_perimeter(latitudes: list[float], longitudes: list[float]) -> tuple[float, float]:
@@ -108,6 +123,8 @@ def _area_and_perimeter(latitudes: list[float], longitudes: list[float]) -> tupl
     polygon = Polygon(zip(longitudes, latitudes))
     if not polygon.is_valid:
         polygon = polygon.buffer(0)
+    if polygon.is_empty or polygon.area == 0:
+        raise ValueError("degenerate parcel outline: zero area after repair")
 
     centroid = polygon.centroid
     utm_zone = int((centroid.x + 180) // 6) + 1
@@ -130,19 +147,27 @@ def process_parcels(folder_path: str) -> pd.DataFrame:
         One row per parcel with ``Surface_ha``, ``Perimetre_km`` and
         ``Complexite`` (the number of boundary vertices, a crude proxy for how
         irregular the parcel outline is). Polygons with fewer than three
-        vertices are skipped.
+        vertices are skipped, and so are outlines with zero area once repaired
+        (with a warning).
     """
     records = []
 
     for filename in _sorted_csvs(folder_path):
         df = pd.read_csv(os.path.join(folder_path, filename))
 
-        if set(PARCEL_COLUMNS) - set(df.columns) or len(df) < 3:
+        if set(PARCEL_COLUMNS) - set(df.columns):
+            continue
+        df = df.dropna(subset=list(PARCEL_COLUMNS))
+        if len(df) < 3:
             continue
 
         latitudes = df["Latitude"].tolist()
         longitudes = df["Longitude"].tolist()
-        area_m2, perimeter_m = _area_and_perimeter(latitudes, longitudes)
+        try:
+            area_m2, perimeter_m = _area_and_perimeter(latitudes, longitudes)
+        except ValueError as exc:
+            warnings.warn(f"{filename}: {exc}; parcel skipped")
+            continue
 
         records.append(
             {

@@ -5,21 +5,25 @@ parcel geometry and equipment specifications, so that abnormal consumption —
 mechanical faults, or fuel siphoned off between jobs — can be flagged against
 what a job of that size *should* have taken.
 
-**Result: 0.51 L mean absolute error on a held-out fifth of the data, against a
-3.29 L naive baseline — a 6.5× improvement.** Cross-validated MAE is
-0.42 ± 0.05 L on a target whose median is 1.24 L.
+**Result: 0.57 L mean absolute error on parcels the model never saw, against a
+3.91 L naive baseline — a 6.9× improvement.** Cross-validated MAE is
+0.47 ± 0.22 L on a target whose median is 1.09 L.
 
 | Model | MAE (L) | vs. baseline |
 |---|---|---|
-| Predict the median | 3.135 ± 0.543 | 1.0× |
-| Linear regression, duration only | 0.835 ± 0.096 | 3.8× |
-| Linear regression, all features | 0.619 ± 0.055 | 5.1× |
-| Gradient boosting, hand-tuned | 0.537 ± 0.113 | 5.8× |
-| **Gradient boosting, defaults** | **0.421 ± 0.052** | **7.4×** |
+| Predict the median | 3.056 ± 0.922 | 1.0× |
+| Linear regression, duration only | 0.884 ± 0.322 | 3.5× |
+| Linear regression, all features | 0.709 ± 0.121 | 4.3× |
+| Gradient boosting, hand-tuned | 0.615 ± 0.210 | 5.0× |
+| **Gradient boosting, defaults** | **0.472 ± 0.220** | **6.5×** |
 
-*5-fold cross-validation on the training split. The hand-tuned configuration
-reaches a training MAE of 0.0002 — it memorises the data — and generalises
-worse than untouched defaults, so the defaults are what ships.*
+*5-fold cross-validation on the training split, grouped by parcel: every
+intervention on a parcel falls in the same fold, and the holdout is six whole
+parcels (85 interventions). Jobs on one parcel share terrain and distances, so a
+random split would score the model on near-copies of its training rows and
+overstate accuracy. The hand-tuned configuration reaches a training MAE of
+0.0002 — it memorises the data — and generalises worse than untouched defaults,
+so the defaults are what ships.*
 
 ![Model comparison](reports/figures/model_comparison.png)
 
@@ -55,7 +59,9 @@ zone, since degrees are not a unit of area).
 > data, affecting 4 interventions, which are median-imputed.
 
 `interventions_test.csv` has no target column — it is an unlabelled holdout, so
-it yields predictions, not scores.
+it yields predictions, not scores. Traces are shipped for 100 of its 320
+interventions; `predictions.csv` lists all 320, with a prediction for the 100
+that have a trace and `has_trajectory = False` for the others.
 
 ## Running it
 
@@ -63,11 +69,12 @@ it yields predictions, not scores.
 git clone https://github.com/AnasSABBAHI/tractor-fuel-consumption
 cd tractor-fuel-consumption
 
-python -m venv venv
+python -m venv venv              # Python 3.12, see .python-version
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 jupyter lab
+pytest tests                    # after pip install pytest
 ```
 
 Run the notebooks in order:
@@ -107,8 +114,9 @@ flag every large job and no small one.
 
 - **No hyperparameter search.** Defaults beat hand-picked values here; a proper
   search would likely beat both. This is the obvious next improvement.
-- **500 rows.** Small enough that the holdout estimate carries real uncertainty,
-  which is why cross-validated standard deviations accompany every score.
+- **500 rows on 30 parcels.** Small enough that the holdout estimate carries
+  real uncertainty: six held-out parcels is a small sample, which is why
+  cross-validated standard deviations accompany every score.
 - **Retrospective only**, for the reason given above.
 - **Single season, single operation.** Generalisation to other fleets, crops or
   terrain is untested.
@@ -122,6 +130,7 @@ flag every large job and no small one.
 ├── notebooks/          1_feature_engineering_and_eda, 2_modeling
 ├── src/
 │   └── data_processing.py    trajectory and parcel feature extraction
+├── tests/              pytest suite for the feature pipeline
 ├── reports/figures/    generated plots
 └── requirements.txt
 ```
